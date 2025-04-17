@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>音声チャレンジ</title>
+</head>
+<body>
+  <h1>お題にチャレンジ！</h1>
+  <button id="load-odai">🎯 お題をもらう</button>
+  <p id="odai">...</p>
+  <p id="odai-pinyin">（ピンインがここに表示されます）</p>
+  
+  <button id="play-tts">🗣️ 発音を聞く</button>
+  <audio id="tts-audio" controls style="display:none;"></audio>
+
+  <button id="record">🎤 録音する</button>
+  <p id="result">（認識結果がここに表示されます）</p>
+
+  <script>
+    const odaiElem = document.getElementById("odai");
+    const resultElem = document.getElementById("result");
+    const recordBtn = document.getElementById("record");
+    const loadOdaiBtn = document.getElementById("load-odai");
+
+    let mediaRecorder, audioChunks = [];
+
+    loadOdaiBtn.onclick = async () => {
+      const res = await fetch("http://localhost:5000/odai");
+      const json = await res.json();
+      odaiElem.textContent = json.text;
+      document.getElementById("odai-pinyin").textContent = json.pinyin;
+    };
+
+    document.getElementById("play-tts").onclick = async () => {
+    const text = document.getElementById("odai").textContent.trim();
+    const res = await fetch("http://localhost:5000/tts", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ text })
+    });
+
+    if (!res.ok) {
+      alert("TTS取得失敗！");
+      return;
+    }
+
+    const blob = await res.blob();
+    const audioURL = URL.createObjectURL(blob);
+    const audioElem = document.getElementById("tts-audio");
+    audioElem.src = audioURL;
+    audioElem.style.display = "block";
+    audioElem.play();
+  };
+
+    recordBtn.onclick = async () => {
+      if (!mediaRecorder || mediaRecorder.state === "inactive") {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        mediaRecorder.start();
+        recordBtn.textContent = "⏹️ 停止";
+        audioChunks = [];
+
+        mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+        mediaRecorder.onstop = async () => {
+          const blob = new Blob(audioChunks, { type: "audio/webm" });
+          const formData = new FormData();
+          formData.append("audio", blob, "audio.webm");
+
+          const res = await fetch("http://localhost:5000/stt", {
+            method: "POST",
+            body: formData
+          });
+          const json = await res.json();
+          resultElem.textContent = "📝 認識結果: " + json.text;
+          resultElem.textContent += "\n📚 ピンイン: " + json.pinyin;
+
+          recordBtn.textContent = "🎤 録音する";
+        };
+      } else {
+        mediaRecorder.stop();
+      }
+    };
+  </script>
+</body>
+</html>
